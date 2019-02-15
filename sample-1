@@ -1,0 +1,89 @@
+---
+image: maven:3-jdk-8
+cache:
+ paths:
+ - $HOME/.m2/
+variables:
+  MAVEN_CLI_OPTS: "-s /.m2/settings.xml -B"
+  SONAR_PROJECT_NAME: "project-demo"
+stages:
+- build
+- test
+- deploy
+- documentation
+- release
+
+maven:build:
+stage: build
+environment: staging
+script:
+- "mvn $MAVEN_CLI_OPTS clean compile"
+artifacts:
+when: on_success
+expire_in: 1 day
+paths:
+- target/
+
+maven:package:
+stage: test
+environment: staging
+dependencies:
+- maven:build
+script: "mvn $MAVEN_CLI_OPTS package"
+artifacts:
+when: on_success
+expire_in: 1 day
+paths:
+- target/
+
+maven:sonar:
+stage: test
+environment: staging
+dependencies:
+- maven:build
+script: "mvn $MAVEN_CLI_OPTS verify sonar:sonar -D sonar.projectName=$SONAR_PROJECT_NAME -Dsonar.gitlab.commit_sha=$CI_BUILD_REF -Dsonar.gitlab.ref_name=$CI_BUILD_REF_NAME"
+artifacts:
+when: on_success
+expire_in: 1 day
+paths:
+- target/
+
+maven:deploy-nexus:
+stage: deploy
+environment: staging
+except:
+- tags
+- releases
+dependencies:
+- maven:package
+- maven:sonar
+script: "mvn $MAVEN_CLI_OPTS deploy"
+artifacts:
+when: on_success
+expire_in: 1 day
+paths:
+- target/*.jar
+
+maven:javadoc:
+stage: documentation
+environment: staging
+only:
+- tags
+dependencies:
+- maven:deploy-nexus
+script: "mvn $MAVEN_CLI_OPTS javadoc:javadoc"
+artifacts:
+when: on_success
+expire_in: 1 week
+paths:
+- target/site/apidocs/
+
+maven:release:
+stage: release
+environment: staging
+only:
+- releases
+dependencies:
+- maven:deploy-nexus
+script:
+- "/tools/maven-release"
